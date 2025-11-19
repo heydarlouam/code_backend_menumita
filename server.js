@@ -292,104 +292,7 @@ async function deleteImageFromPocketBase(imageId) {
   }
 }
 
-// ---------- Realtime: Orders Bridge ----------
-const ALLOWED_STATUSES = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-const EXPAND_ORD = 'userID,couponCode';
-const FIELDS_ORD = [
-  'id','collectionId','collectionName','created','updated','orderStatus','items','totalPrice',
-  'shippingAddress','paymentMethod','orderTotal','trackingUrl','orderDate','userID','couponCode','phone_number_code',
-  'expand.userID.id','expand.userID.uuid','expand.userID.name','expand.userID.phone_number','expand.userID.address',
-  'expand.couponCode.id','expand.couponCode.couponCode','expand.couponCode.discountType','expand.couponCode.discountAmount'
-].join(',');
 
-function mapOrderOut(order) {
-  const out = {
-    id: order.id,
-    collectionId: order.collectionId,
-    collectionName: order.collectionName,
-    created: order.created,
-    updated: order.updated,
-    orderStatus: order.orderStatus ?? null,
-    items: order.items ?? [],
-    totalPrice: order.totalPrice ?? 0,
-    shippingAddress: order.shippingAddress ?? null,
-    paymentMethod: order.paymentMethod ?? null,
-    orderTotal: order.orderTotal ?? 0,
-    trackingUrl: order.trackingUrl ?? null,
-    orderDate: order.orderDate ?? null,
-    userID: order.userID ?? null,
-    phone_number_code: order.phone_number_code ?? null,
-  };
-
-  const exUser = order?.expand?.userID;
-  if (exUser) {
-    out.user = {
-      id: exUser.id,
-      uuid: exUser.uuid ?? null,
-      name: exUser.name ?? null,
-      phone_number: exUser.phone_number ?? null,
-      address: exUser.address ?? null,
-    };
-  }
-  const exCoupon = order?.expand?.couponCode;
-  if (exCoupon) {
-    out.coupon = {
-      id: exCoupon.id,
-      couponCode: exCoupon.couponCode ?? null,
-      discountType: exCoupon.discountType ?? null,
-      discountAmount: exCoupon.discountAmount ?? null,
-    };
-  }
-  return out;
-}
-
-async function fetchFullOrder(id) {
-  return await pb.collection('orders').getOne(id, { expand: EXPAND_ORD, fields: FIELDS_ORD });
-}
-
-function emitOrdersChange({ action, record }) {
-  io.emit('orders_change', {
-    action,           // create | update | delete
-    record,
-    timestamp: Date.now(),
-  });
-}
-
-async function setupRealtimeOrders() {
-  try {
-    console.log('📡 Subscribing PocketBase collection: orders');
-
-    await pb.collection('orders').subscribe('*', async (e) => {
-      const rawStatus = (e?.record?.orderStatus || '').toString();
-      if (!ALLOWED_STATUSES.includes(rawStatus)) return;
-
-      if (e.action === 'create' || e.action === 'update') {
-        try {
-          const full = await fetchFullOrder(e.record.id);
-          emitOrdersChange({ action: e.action, record: mapOrderOut(full) });
-        } catch (err) {
-          console.error('❌ دریافت رکورد کامل سفارش ناموفق:', err?.message || err);
-        }
-      } else if (e.action === 'delete') {
-        const id = e.record?.id;
-        if (!id) return;
-        emitOrdersChange({
-          action: 'delete',
-          record: {
-            id,
-            orderStatus: e.record?.orderStatus ?? null,
-            phone_number_code: e.record?.phone_number_code ?? null,
-          },
-        });
-      }
-    });
-
-    console.log('✅ پل ریل‌تایم آماده است: "orders_change" پخش می‌شود.');
-  } catch (err) {
-    console.error('❌ راه‌اندازی ریل‌تایم ناموفق بود، تلاش مجدد ۳ ثانیه دیگر:', err?.message || err);
-    setTimeout(setupRealtimeOrders, 3000);
-  }
-}
 
 // ---------- Socket.IO connection ----------
 io.on('connection', (socket) => {
@@ -1582,7 +1485,163 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
+
+
+
+
+
+// ---------- Realtime: Orders Bridge ----------
+const ALLOWED_STATUSES = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+
+const EXPAND_ORD = 'userID,couponCode';
+
+const FIELDS_ORD = [
+  'id','collectionId','collectionName','created','updated','orderStatus','items','totalPrice',
+  'shippingAddress','paymentMethod','orderTotal','trackingUrl','orderDate','userID','couponCode','phone_number_code',
+  'orderMode','tableNumber',
+  'expand.userID.id','expand.userID.uuid','expand.userID.name','expand.userID.phone_number','expand.userID.address',
+  'expand.couponCode.id','expand.couponCode.couponCode','expand.couponCode.discountType','expand.couponCode.discountAmount'
+].join(',');
+
+// function mapOrderOut(order) {
+//   const out = {
+//     id: order.id,
+//     collectionId: order.collectionId,
+//     collectionName: order.collectionName,
+//     created: order.created,
+//     updated: order.updated,
+//     orderStatus: order.orderStatus ?? null,
+//     items: order.items ?? [],
+//     totalPrice: order.totalPrice ?? 0,
+//     shippingAddress: order.shippingAddress ?? null,
+//     paymentMethod: order.paymentMethod ?? null,
+//     orderTotal: order.orderTotal ?? 0,
+//     trackingUrl: order.trackingUrl ?? null,
+//     orderDate: order.orderDate ?? null,
+//     userID: order.userID ?? null,
+//     phone_number_code: order.phone_number_code ?? null,
+//   };
+
+//   const exUser = order?.expand?.userID;
+//   if (exUser) {
+//     out.user = {
+//       id: exUser.id,
+//       uuid: exUser.uuid ?? null,
+//       name: exUser.name ?? null,
+//       phone_number: exUser.phone_number ?? null,
+//       address: exUser.address ?? null,
+//     };
+//   }
+//   const exCoupon = order?.expand?.couponCode;
+//   if (exCoupon) {
+//     out.coupon = {
+//       id: exCoupon.id,
+//       couponCode: exCoupon.couponCode ?? null,
+//       discountType: exCoupon.discountType ?? null,
+//       discountAmount: exCoupon.discountAmount ?? null,
+//     };
+//   }
+//   return out;
+// }
+function mapOrderOut(order) {
+  // 🔽 استفاده از normalizeOrderTotal
+  const norm = normalizeOrderTotal(order);
+  const out = {
+    id: order.id,
+    collectionId: order.collectionId,
+    collectionName: order.collectionName,
+    created: order.created,
+    updated: order.updated,
+    orderStatus: order.orderStatus ?? null,
+    items: order.items ?? [],
+    totalPrice: norm.total, // 🔽 استفاده از norm.total
+    shippingAddress: order.shippingAddress ?? null,
+    paymentMethod: order.paymentMethod ?? null,
+    orderMode: order.orderMode ?? null,
+    tableNumber: order.tableNumber ?? 0,
+    orderTotal: { subTotal: norm.subTotal, discount: norm.discount, total: norm.total }, // 🔽 ساختار کامل
+    trackingUrl: order.trackingUrl ?? null,
+    orderDate: order.orderDate ?? null,
+    userID: order.userID ?? null,
+    phone_number_code: order.phone_number_code ?? null,
+  };
+
+  const exUser = order?.expand?.userID;
+  if (exUser) {
+    out.user = {
+      id: exUser.id,
+      uuid: exUser.uuid ?? null,
+      name: exUser.name ?? null,
+      phone_number: exUser.phone_number ?? null,
+      address: exUser.address ?? null,
+    };
+  }
+  const exCoupon = order?.expand?.couponCode;
+  if (exCoupon) {
+    // 🔽 استفاده از منطق مشابه روت بالایی برای کوپن
+    const first = Array.isArray(exCoupon) ? exCoupon[0] : exCoupon;
+    if (first) {
+      out.coupon = {
+        id: first.id,
+        couponCode: first.couponCode ?? null,
+        discountType: first.discountType ?? null,
+        discountAmount: toNum(first.discountAmount), // 🔽 استفاده از toNum
+      };
+    }
+  }
+  return out;
+}
+
+async function fetchFullOrder(id) {
+  return await pb.collection('orders').getOne(id, { expand: EXPAND_ORD, fields: FIELDS_ORD });
+}
+
+function emitOrdersChange({ action, record }) {
+  io.emit('orders_change', {
+    action,           // create | update | delete
+    record,
+    timestamp: Date.now(),
+  });
+}
+
+async function setupRealtimeOrders() {
+  try {
+    console.log('📡 Subscribing PocketBase collection: orders');
+
+    await pb.collection('orders').subscribe('*', async (e) => {
+      const rawStatus = (e?.record?.orderStatus || '').toString();
+      if (!ALLOWED_STATUSES.includes(rawStatus)) return;
+
+      if (e.action === 'create' || e.action === 'update') {
+        try {
+          const full = await fetchFullOrder(e.record.id);
+          emitOrdersChange({ action: e.action, record: mapOrderOut(full) });
+        } catch (err) {
+          console.error('❌ دریافت رکورد کامل سفارش ناموفق:', err?.message || err);
+        }
+      } else if (e.action === 'delete') {
+        const id = e.record?.id;
+        if (!id) return;
+        emitOrdersChange({
+          action: 'delete',
+          record: {
+            id,
+            orderStatus: e.record?.orderStatus ?? null,
+            phone_number_code: e.record?.phone_number_code ?? null,
+          },
+        });
+      }
+    });
+
+    console.log('✅ پل ریل‌تایم آماده است: "orders_change" پخش می‌شود.');
+  } catch (err) {
+    console.error('❌ راه‌اندازی ریل‌تایم ناموفق بود، تلاش مجدد ۳ ثانیه دیگر:', err?.message || err);
+    setTimeout(setupRealtimeOrders, 3000);
+  }
+}
+
 // ========== ORDERS (REST) ==========
+
 function calcCouponByExpand(subTotal, expandCoupon) {
   if (!expandCoupon) return null;
   const list = Array.isArray(expandCoupon) ? expandCoupon : [expandCoupon];
@@ -1677,6 +1736,7 @@ app.get('/api/ordersalls', async (req, res) => {
       if (!page.items.length) break;
 
       for (const order of page.items) {
+         const norm = normalizeOrderTotal(order);
         const out = {
           id: order.id,
           collectionId: order.collectionId,
@@ -1685,10 +1745,14 @@ app.get('/api/ordersalls', async (req, res) => {
           updated: order.updated,
           orderStatus: order.orderStatus ?? null,
           items: order.items ?? [],
-          totalPrice: order.totalPrice ?? 0,
+          // totalPrice: order.totalPrice ?? 0,
+            totalPrice: norm.total, // 🔽 استفاده از norm.total
           shippingAddress: order.shippingAddress ?? null,
           paymentMethod: order.paymentMethod ?? null,
-          orderTotal: order.orderTotal ?? 0,
+            orderMode: order.orderMode ?? null,        // اضافه شود
+  tableNumber: order.tableNumber ?? 0,  
+          // orderTotal: order.orderTotal ?? 0,
+               orderTotal: { subTotal: norm.subTotal, discount: norm.discount, total: norm.total }, // 🔽 ساختار کامل
           trackingUrl: order.trackingUrl ?? null,
           orderDate: order.orderDate ?? null,
           userID: order.userID ?? null,
@@ -1705,14 +1769,27 @@ app.get('/api/ordersalls', async (req, res) => {
             address: exUser.address ?? null
           };
         }
-        const exCoupon = order?.expand?.couponCode;
+        // const exCoupon = order?.expand?.couponCode;
+        // if (exCoupon) {
+        //   out.coupon = {
+        //     id: exCoupon.id,
+        //     couponCode: exCoupon.couponCode ?? null,
+        //     discountType: exCoupon.discountType ?? null,
+        //     discountAmount: exCoupon.discountAmount ?? null
+        //   };
+        // }
+          const exCoupon = order?.expand?.couponCode;
         if (exCoupon) {
-          out.coupon = {
-            id: exCoupon.id,
-            couponCode: exCoupon.couponCode ?? null,
-            discountType: exCoupon.discountType ?? null,
-            discountAmount: exCoupon.discountAmount ?? null
-          };
+          // 🔽 استفاده از منطق مشابه روت بالایی برای کوپن
+          const first = Array.isArray(exCoupon) ? exCoupon[0] : exCoupon;
+          if (first) {
+            out.coupon = {
+              id: first.id,
+              couponCode: first.couponCode ?? null,
+              discountType: first.discountType ?? null,
+              discountAmount: toNum(first.discountAmount), // 🔽 استفاده از toNum
+            };
+          }
         }
         data.push(out);
       }
@@ -1722,12 +1799,27 @@ app.get('/api/ordersalls', async (req, res) => {
       if (page.items.length < limit) break;
     }
 
-    return res.json({ success: true, data });
+//     return res.json({ success: true, data });
+//   } catch (error) {
+//     return res.status(500).json({ success: false, error: error.message });
+//   }
+// });
+   // 🔽 اضافه کردن count و message مثل روت بالایی
+    return res.json({ 
+      success: true, 
+      message: 'تمام سفارش‌ها دریافت شد.', 
+      count: data.length, 
+      data 
+    });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    // 🔽 استفاده از پیام فارسی مثل روت بالایی
+    return res.status(500).json({ 
+      success: false, 
+      message: 'خطای سرور در دریافت سفارش‌ها.', 
+      error: error?.message || String(error) 
+    });
   }
 });
-
 // GET /api/orders  (Paid-only صفحه‌ای)
 app.get('/api/orders', async (req, res) => {
   try {
@@ -1771,12 +1863,70 @@ app.get('/api/orders', async (req, res) => {
 
       currentPage += 1;
 
+//       const last = pageRes.items[pageRes.items.length - 1];
+//       lastCreated = last.created; lastId = last.id;
+
+//       if (currentPage < targetPage) continue;
+
+//       for (const order of pageRes.items) {
+//         const out = {
+//           id: order.id,
+//           collectionId: order.collectionId,
+//           collectionName: order.collectionName,
+//           created: order.created,
+//           updated: order.updated,
+//           orderStatus: order.orderStatus ?? null,
+//           items: order.items ?? [],
+//           totalPrice: order.totalPrice ?? 0,
+//           shippingAddress: order.shippingAddress ?? null,
+//           paymentMethod: order.paymentMethod ?? null,
+//            orderMode: order.orderMode ?? null,        // اضافه شود
+//   tableNumber: order.tableNumber ?? 0,    
+//           orderTotal: order.orderTotal ?? 0,
+//           trackingUrl: order.trackingUrl ?? null,
+//           orderDate: order.orderDate ?? null,
+//           userID: order.userID ?? null,
+//           phone_number_code: order.phone_number_code ?? null
+//         };
+
+//         const exUser = order?.expand?.userID;
+//         if (exUser) {
+//           out.user = {
+//             id: exUser.id,
+//             uuid: exUser.uuid ?? null,
+//             name: exUser.name ?? null,
+//             phone_number: exUser.phone_number ?? null,
+//             address: exUser.address ?? null
+//           };
+//         }
+//         const exCoupon = order?.expand?.couponCode;
+//         if (exCoupon) {
+//           out.coupon = {
+//             id: exCoupon.id,
+//             couponCode: exCoupon.couponCode ?? null,
+//             discountType: exCoupon.discountType ?? null,
+//             discountAmount: exCoupon.discountAmount ?? null
+//           };
+//         }
+//         data.push(out);
+//       }
+//       break;
+//     }
+
+//     return res.json({ success: true, data });
+//   } catch (error) {
+//     return res.status(500).json({ success: false, error: error.message });
+//   }
+// });
+
       const last = pageRes.items[pageRes.items.length - 1];
       lastCreated = last.created; lastId = last.id;
 
       if (currentPage < targetPage) continue;
 
       for (const order of pageRes.items) {
+        // 🔽 استفاده از normalizeOrderTotal مثل روت بالایی
+        const norm = normalizeOrderTotal(order);
         const out = {
           id: order.id,
           collectionId: order.collectionId,
@@ -1785,10 +1935,12 @@ app.get('/api/orders', async (req, res) => {
           updated: order.updated,
           orderStatus: order.orderStatus ?? null,
           items: order.items ?? [],
-          totalPrice: order.totalPrice ?? 0,
+          totalPrice: norm.total, // 🔽 استفاده از norm.total
           shippingAddress: order.shippingAddress ?? null,
           paymentMethod: order.paymentMethod ?? null,
-          orderTotal: order.orderTotal ?? 0,
+          orderMode: order.orderMode ?? null,
+          tableNumber: order.tableNumber ?? 0,
+          orderTotal: { subTotal: norm.subTotal, discount: norm.discount, total: norm.total }, // 🔽 ساختار کامل
           trackingUrl: order.trackingUrl ?? null,
           orderDate: order.orderDate ?? null,
           userID: order.userID ?? null,
@@ -1807,21 +1959,36 @@ app.get('/api/orders', async (req, res) => {
         }
         const exCoupon = order?.expand?.couponCode;
         if (exCoupon) {
-          out.coupon = {
-            id: exCoupon.id,
-            couponCode: exCoupon.couponCode ?? null,
-            discountType: exCoupon.discountType ?? null,
-            discountAmount: exCoupon.discountAmount ?? null
-          };
+          // 🔽 استفاده از منطق مشابه روت بالایی برای کوپن
+          const first = Array.isArray(exCoupon) ? exCoupon[0] : exCoupon;
+          if (first) {
+            out.coupon = {
+              id: first.id,
+              couponCode: first.couponCode ?? null,
+              discountType: first.discountType ?? null,
+              discountAmount: toNum(first.discountAmount), // 🔽 استفاده از toNum
+            };
+          }
         }
         data.push(out);
       }
       break;
     }
 
-    return res.json({ success: true, data });
+    // 🔽 اضافه کردن count و message مثل روت بالایی
+    return res.json({ 
+      success: true, 
+      message: 'سفارش‌های Paid دریافت شد.', 
+      count: data.length, 
+      data 
+    });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    // 🔽 استفاده از پیام فارسی مثل روت بالایی
+    return res.status(500).json({ 
+      success: false, 
+      message: 'خطای سرور در دریافت سفارش‌ها.', 
+      error: error?.message || String(error) 
+    });
   }
 });
 

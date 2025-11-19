@@ -15,7 +15,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const FormData = require('form-data');
-
+const axios = require('axios');
 // --- Polyfills برای Realtime PocketBase در Node
 const WebSocket = require('ws');
 globalThis.WebSocket = WebSocket;
@@ -209,17 +209,77 @@ const deleteTempFile = async (filePath) => {
   } catch (_) {}
 };
 
+// async function uploadToPocketBase(filePath, originalName) {
+//   try {
+//     const formData = new FormData();
+//     formData.append('file', fsSync.createReadStream(filePath), { filename: originalName });
+//     formData.append('name', path.parse(originalName).name);
+//     const record = await pb.collection('images').create(formData);
+//     return record;
+//   } catch (error) {
+//     throw new Error(`خطا در آپلود فایل: ${error.message}`);
+//   }
+// }
+
+
+
+
+
+
+/**
+ * تابع درست آپلود فایل با axios
+ */
 async function uploadToPocketBase(filePath, originalName) {
   try {
+    console.log('📤 آپلود فایل:', originalName);
+    
+    // ایجاد FormData
     const formData = new FormData();
-    formData.append('file', fsSync.createReadStream(filePath), { filename: originalName });
+    
+    // اضافه کردن فایل
+    const fileStream = fsSync.createReadStream(filePath);
+    formData.append('file', fileStream, {
+      filename: originalName,
+      contentType: getMimeType(originalName)
+    });
+    
     formData.append('name', path.parse(originalName).name);
-    const record = await pb.collection('images').create(formData);
-    return record;
+
+    // آپلود مستقیم با axios
+    const response = await axios.post(
+      `${PB_URL}/api/collections/images/records`,
+      formData,
+      {
+        headers: {
+          ...formData.getHeaders(),
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      }
+    );
+
+    console.log('✅ آپلود موفق:', response.data.id);
+    return response.data;
+
   } catch (error) {
+    console.error('❌ خطای آپلود:', error.response?.data || error.message);
     throw new Error(`خطا در آپلود فایل: ${error.message}`);
   }
 }
+
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png', 
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp'
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+}
+
 
 async function deleteImageFromPocketBase(imageId) {
   try {

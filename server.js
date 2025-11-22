@@ -308,16 +308,26 @@ io.on('connection', (socket) => {
 // ---------- Routes مشترک و کمکی (مثبت به نسخه‌ی شما) ----------
 
 // ——— Posters helpers
+// function buildFileUrlSafe(rec, file) {
+//   const base = (pb.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
+//   try {
+//     const url = pb.files.getUrl(rec, file);
+//     if (url && /^https?:\/\//i.test(url)) return url;
+//     return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
+//   } catch {
+//     return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
+//   }
+// }
+// ——— Posters helpers
 function buildFileUrlSafe(rec, file) {
-  const base = (pb.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
-  try {
-    const url = pb.files.getUrl(rec, file);
-    if (url && /^https?:\/\//i.test(url)) return url;
-    return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-  } catch {
-    return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-  }
+  // استفاده مستقیم از آدرس عمومی - بدون استفاده از pb.files.getUrl
+  const publicBase = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
+  const base = publicBase.replace(/\/+$/, '');
+  
+  // ساخت مستقیم آدرس فایل
+  return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
 }
+
 
 // ========== COUPONS ==========
 function sanitizeCouponFields(c) {

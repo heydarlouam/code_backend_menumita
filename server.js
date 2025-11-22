@@ -247,7 +247,7 @@ async function uploadToPocketBase(filePath, originalName) {
 
     // آپلود مستقیم با axios
     const response = await axios.post(
-      `${PB_URL}/api/collections/images/records`,
+      `${PUBLIC_PB_URL}/api/collections/images/records`,
       formData,
       {
         headers: {
@@ -309,7 +309,7 @@ io.on('connection', (socket) => {
 
 // ——— Posters helpers
 function buildFileUrlSafe(rec, file) {
-  const base = (pb.baseUrl || PB_URL).replace(/\/+$/, '');
+  const base = (pb.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
   try {
     const url = pb.files.getUrl(rec, file);
     if (url && /^https?:\/\//i.test(url)) return url;
@@ -2303,7 +2303,7 @@ app.get('/app-manifest/:raw', async (req, res) => {
     if (!record) return res.status(404).json({ success:false, error:'تنظیمات اپ یافت نشد.' });
 
     const icon = (record.icon_logo || '').toString().trim();
-    const baseUrl = (pb?.baseUrl || PB_URL).replace(/\/+$/, '');
+    const baseUrl = (pb?.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
     let appIconUrl = '';
     if (icon) {
       try {

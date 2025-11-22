@@ -2313,18 +2313,28 @@ app.get('/app-manifest/:raw', async (req, res) => {
     if (!record) return res.status(404).json({ success:false, error:'تنظیمات اپ یافت نشد.' });
 
     const icon = (record.icon_logo || '').toString().trim();
-    const baseUrl = (pb?.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
-    let appIconUrl = '';
-    if (icon) {
-      try {
-        appIconUrl = pb.files.getUrl(record, icon) || '';
-        if (!/^https?:\/\//i.test(appIconUrl)) {
-          appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-        }
-      } catch {
-        appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-      }
-    }
+    // const baseUrl = (pb?.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
+    // let appIconUrl = '';
+    // if (icon) {
+    //   try {
+    //     appIconUrl = pb.files.getUrl(record, icon) || '';
+    //     if (!/^https?:\/\//i.test(appIconUrl)) {
+    //       appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+    //     }
+    //   } catch {
+    //     appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+    //   }
+    // }
+    const baseUrl = (process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090').replace(/\/+$/, '');
+let appIconUrl = '';
+if (icon) {
+  try {
+    // استفاده مستقیم از آدرس عمومی - بدون pb.files.getUrl
+    appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+  } catch {
+    appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+  }
+}
 
     const data = JSON.parse(JSON.stringify(record));
     if ('password' in data) delete data.password;

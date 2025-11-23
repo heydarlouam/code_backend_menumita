@@ -1014,61 +1014,105 @@ app.delete('/api/brands/:id', async (req, res) => {
 });
 
 // ========== CATEGORIES ==========
+// app.get('/api/categories', async (req, res) => {
+//   try {
+//     const {
+//       expand = 'image',
+//       fields = 'id,collectionId,collectionName,created,updated,name,image,phone_number_code,expand.image.id,expand.image.collectionId,expand.image.file',
+//       phone_number_code, filter, perPage = 200
+//     } = req.query;
+
+//     const limit = Math.min(Math.max(parseInt(perPage, 10) || 200, 1), 500);
+//     const sort = '-created,-id';
+//     const baseFilter = phone_number_code
+//       ? `phone_number_code = "${escPB(String(phone_number_code).trim())}"`
+//       : (filter || '');
+
+//     const all = [];
+//     let lastCreated = null, lastId = null;
+
+//     while (true) {
+//       const cursor = (lastCreated && lastId)
+//         ? `(created < "${escPB(lastCreated)}") || (created = "${escPB(lastCreated)}" && id < "${escPB(lastId)}")`
+//         : '';
+//       const eff = baseFilter && cursor ? `(${baseFilter}) && (${cursor})`
+//                : baseFilter ? `(${baseFilter})`
+//                : cursor ? `(${cursor})` : '';
+
+//       const page = await pb.collection('categories').getList(1, limit, {
+//         sort, filter: eff, expand, fields, skipTotal: true
+//       });
+//       if (!page.items.length) break;
+
+//       for (const cat of page.items) {
+//         const out = {
+//           id: cat.id,
+//           collectionId: cat.collectionId,
+//           collectionName: cat.collectionName,
+//           created: cat.created,
+//           updated: cat.updated,
+//           name: cat.name,
+//           image: cat.image ?? null,
+//           phone_number_code: cat.phone_number_code ?? null,
+//           imageUrl: null
+//         };
+//         const img = cat?.expand?.image;
+//         if (img?.file) out.imageUrl = buildFileUrlSafe(img, img.file);
+//         all.push(out);
+//       }
+
+//       const last = page.items[page.items.length - 1];
+//       lastCreated = last.created; lastId = last.id;
+//       if (page.items.length < limit) break;
+//     }
+
+//     res.json({ success: true, data: all });
+//   } catch (error) {
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// });
+
 app.get('/api/categories', async (req, res) => {
   try {
-    const {
-      expand = 'image',
-      fields = 'id,collectionId,collectionName,created,updated,name,image,phone_number_code,expand.image.id,expand.image.collectionId,expand.image.file',
-      phone_number_code, filter, perPage = 200
-    } = req.query;
+    const { phone_number_code, perPage = 200 } = req.query;
 
-    const limit = Math.min(Math.max(parseInt(perPage, 10) || 200, 1), 500);
-    const sort = '-created,-id';
-    const baseFilter = phone_number_code
-      ? `phone_number_code = "${escPB(String(phone_number_code).trim())}"`
-      : (filter || '');
-
-    const all = [];
-    let lastCreated = null, lastId = null;
-
-    while (true) {
-      const cursor = (lastCreated && lastId)
-        ? `(created < "${escPB(lastCreated)}") || (created = "${escPB(lastCreated)}" && id < "${escPB(lastId)}")`
-        : '';
-      const eff = baseFilter && cursor ? `(${baseFilter}) && (${cursor})`
-               : baseFilter ? `(${baseFilter})`
-               : cursor ? `(${cursor})` : '';
-
-      const page = await pb.collection('categories').getList(1, limit, {
-        sort, filter: eff, expand, fields, skipTotal: true
-      });
-      if (!page.items.length) break;
-
-      for (const cat of page.items) {
-        const out = {
-          id: cat.id,
-          collectionId: cat.collectionId,
-          collectionName: cat.collectionName,
-          created: cat.created,
-          updated: cat.updated,
-          name: cat.name,
-          image: cat.image ?? null,
-          phone_number_code: cat.phone_number_code ?? null,
-          imageUrl: null
-        };
-        const img = cat?.expand?.image;
-        if (img?.file) out.imageUrl = buildFileUrlSafe(img, img.file);
-        all.push(out);
-      }
-
-      const last = page.items[page.items.length - 1];
-      lastCreated = last.created; lastId = last.id;
-      if (page.items.length < limit) break;
+    if (!phone_number_code) {
+      return res.status(400).json({ success: false, error: 'phone_number_code الزامی است.' });
     }
 
-    res.json({ success: true, data: all });
+    const limit = Math.min(Math.max(parseInt(perPage, 10) || 200, 1), 500);
+
+    // فیلتر مستقیم روی phone_number_code
+    const list = await pb.collection('categories').getList(1, limit, {
+      filter: `phone_number_code = "${phone_number_code.trim()}"`,
+      sort: 'name',
+    });
+
+    const categories = list.items.map(cat => {
+      const imageFile = cat.image; // این مستقیم نام فایل هست (مثل: pms8qoq5026x7nc)
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        image: imageFile || null,
+        phone_number_code: cat.phone_number_code,
+        created: cat.created,
+        updated: cat.updated,
+        // ساخت آدرس عکس با PUBLIC_PB_URL
+        imageUrl: imageFile
+          ? `${process.env.PUBLIC_PB_URL.replace(/\/+$/, '')}/api/files/${cat.collectionId}/${cat.id}/${encodeURIComponent(imageFile)}`
+          : null
+      };
+    });
+
+    return res.json({
+      success: true,
+      categories
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('خطا در /api/categories:', error.message);
+    return res.status(500).json({ success: false, error: 'خطای سرور' });
   }
 });
 

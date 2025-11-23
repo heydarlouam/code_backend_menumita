@@ -469,11 +469,29 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 const escPB = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
 const toNum = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
 
-const buildFileUrlSafe = (rec, file) => {
-  const base = PUBLIC_PB_URL.replace(/\/+$/, '');
-  return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-};
+// const buildFileUrlSafe = (rec, file) => {
+//   const base = PUBLIC_PB_URL.replace(/\/+$/, '');
+//   return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
+// };
 
+// این تابع رو دقیقاً جایگزین تابع قبلی کن
+const buildFileUrlSafe = (record, filename) => {
+  if (!record || !filename) return null;
+  
+  const base = (process.env.PUBLIC_PB_URL || '').replace(/\/+$/, '');
+  if (!base) {
+    console.warn('PUBLIC_PB_URL تنظیم نشده! آدرس فایل ساخته نمیشه.');
+    return null;
+  }
+
+  const file = String(filename).trim();
+  if (!file) return null;
+
+  // encodeURIComponent برای جلوگیری از مشکل کاراکترهای خاص
+  const encodedFile = encodeURIComponent(file);
+  
+  return `${base}/api/files/${record.collectionId}/${record.id}/${encodedFile}`;
+};
 const deleteTempFile = async (filePath) => {
   try {
     await fs.unlink(filePath);
@@ -2470,68 +2488,148 @@ const normalizeHost = (input = '') => {
 };
 const escapeFilterValue = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
 
+// app.get('/app-manifest/:raw', async (req, res) => {
+//   try {
+//     const raw = (req.params.raw || '').trim();
+//     if (!raw) return res.status(400).json({ success:false, error:'پارامتر اجباری است.' });
+
+//     const looksLikeHost = raw.includes('.');
+//     let filter;
+//     if (looksLikeHost) {
+//       const host = normalizeHost(raw);
+//       filter = `addr_host="${escapeFilterValue(host)}"`;
+//     } else {
+//       filter = `phone_number="${escapeFilterValue(raw)}"`
+//     }
+//     let record = null;
+//     try { record = await pb.collection('user_bizi').getFirstListItem(filter, {}); } catch (_) {}
+
+//     if (!record && looksLikeHost) {
+//       const host = normalizeHost(raw);
+//       if (host.startsWith('www.')) {
+//         try { record = await pb.collection('user_bizi').getFirstListItem(`addr_host="${escapeFilterValue(host.replace(/^www\./,''))}"`, {}); } catch (_){}
+//       } else {
+//         try { record = await pb.collection('user_bizi').getFirstListItem(`addr_host="www.${escapeFilterValue(host)}"`, {}); } catch (_){}
+//       }
+//     }
+
+//     if (!record) return res.status(404).json({ success:false, error:'تنظیمات اپ یافت نشد.' });
+
+//     const icon = (record.icon_logo || '').toString().trim();
+//     // const baseUrl = (pb?.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
+//     // let appIconUrl = '';
+//     // if (icon) {
+//     //   try {
+//     //     appIconUrl = pb.files.getUrl(record, icon) || '';
+//     //     if (!/^https?:\/\//i.test(appIconUrl)) {
+//     //       appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+//     //     }
+//     //   } catch {
+//     //     appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+//     //   }
+//     // }
+// //     const baseUrl = (process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090').replace(/\/+$/, '');
+// // let appIconUrl = '';
+// // if (icon) {
+// //   try {
+// //     // استفاده مستقیم از آدرس عمومی - بدون pb.files.getUrl
+// //     appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+// //   } catch {
+// //     appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
+// //   }
+// // }
+
+// //     const data = JSON.parse(JSON.stringify(record));
+// //     if ('password' in data) delete data.password;
+// //     data.app_icon_url = appIconUrl;
+
+// //     return res.json({ success:true, manifest:data });
+// //   } catch (e) {
+// //     return res.status(500).json({ success:false, error:'خطای سرور' });
+  
+
+// }
+// });
+
+// ---------- راه‌اندازی Realtime ----------
+
+
+s
 app.get('/app-manifest/:raw', async (req, res) => {
   try {
     const raw = (req.params.raw || '').trim();
-    if (!raw) return res.status(400).json({ success:false, error:'پارامتر اجباری است.' });
+    if (!raw) {
+      return res.status(400).json({ success: false, error: 'پارامتر اجباری است.' });
+    }
 
+    // تشخیص اینکه ورودی دامنه است یا شماره تلفن
     const looksLikeHost = raw.includes('.');
+
     let filter;
     if (looksLikeHost) {
       const host = normalizeHost(raw);
       filter = `addr_host="${escapeFilterValue(host)}"`;
     } else {
-      filter = `phone_number="${escapeFilterValue(raw)}"`
+      filter = `phone_number="${escapeFilterValue(raw)}"`;
     }
-    let record = null;
-    try { record = await pb.collection('user_bizi').getFirstListItem(filter, {}); } catch (_) {}
 
+    let record = null;
+    try {
+      record = await pb.collection('user_bizi').getFirstListItem(filter);
+    } catch (_) { /* نادیده بگیر */ }
+
+    // اگر با www یا بدون www پیدا نشد، برعکسش رو هم امتحان کن
     if (!record && looksLikeHost) {
       const host = normalizeHost(raw);
-      if (host.startsWith('www.')) {
-        try { record = await pb.collection('user_bizi').getFirstListItem(`addr_host="${escapeFilterValue(host.replace(/^www\./,''))}"`, {}); } catch (_){}
-      } else {
-        try { record = await pb.collection('user_bizi').getFirstListItem(`addr_host="www.${escapeFilterValue(host)}"`, {}); } catch (_){}
-      }
+      const alternateHost = host.startsWith('www.') 
+        ? host.replace(/^www\./, '') 
+        : `www.${host}`;
+      try {
+        record = await pb.collection('user_bizi').getFirstListItem(
+          `addr_host="${escapeFilterValue(alternateHost)}"`
+        );
+      } catch (_) { /* نادیده بگیر */ }
     }
 
-    if (!record) return res.status(404).json({ success:false, error:'تنظیمات اپ یافت نشد.' });
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'تنظیمات اپ یافت نشد.' });
+    }
 
-    const icon = (record.icon_logo || '').toString().trim();
-    // const baseUrl = (pb?.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
-    // let appIconUrl = '';
-    // if (icon) {
-    //   try {
-    //     appIconUrl = pb.files.getUrl(record, icon) || '';
-    //     if (!/^https?:\/\//i.test(appIconUrl)) {
-    //       appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-    //     }
-    //   } catch {
-    //     appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-    //   }
-    // }
-    const baseUrl = (process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090').replace(/\/+$/, '');
-let appIconUrl = '';
-if (icon) {
-  try {
-    // استفاده مستقیم از آدرس عمومی - بدون pb.files.getUrl
-    appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-  } catch {
-    appIconUrl = `${baseUrl}/api/files/${record.collectionId}/${record.id}/${icon}`;
-  }
-}
+    // ساخت آدرس آیکون‌ها با PUBLIC_PB_URL امن و encode شده
+    const baseUrl = (process.env.PUBLIC_PB_URL || '').replace(/\/+$/, '');
+    if (!baseUrl) {
+      console.error('PUBLIC_PB_URL در .env تنظیم نشده است!');
+    }
 
-    const data = JSON.parse(JSON.stringify(record));
-    if ('password' in data) delete data.password;
+    const iconLogo = (record.icon_logo || '').toString().trim();
+    const iconLocation = (record.icon_location || '').toString().trim();
+
+    const appIconUrl = iconLogo
+      ? `${baseUrl}/api/files/${record.collectionId}/${record.id}/${encodeURIComponent(iconLogo)}`
+      : null;
+
+    const appIconLocationUrl = iconLocation
+      ? `${baseUrl}/api/files/${record.collectionId}/${record.id}/${encodeURIComponent(iconLocation)}`
+      : null;
+
+    // پاک کردن فیلدهای حساس و اضافه کردن آدرس آیکون‌ها
+    const data = { ...record }; // کپی سطحی کافیه چون رکورد ساده است
+    delete data.password; // امنیت!
+
     data.app_icon_url = appIconUrl;
+    data.app_icon_location_url = appIconLocationUrl;
 
-    return res.json({ success:true, manifest:data });
-  } catch (e) {
-    return res.status(500).json({ success:false, error:'خطای سرور' });
+    return res.json({
+      success: true,
+      manifest: data
+    });
+
+  } catch (error) {
+    console.error('خطا در /app-manifest:', error);
+    return res.status(500).json({ success: false, error: 'خطای سرور' });
   }
 });
 
-// ---------- راه‌اندازی Realtime ----------
 setupRealtimeOrders();
 
 // ---------- Start Server ----------

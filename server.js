@@ -1,165 +1,252 @@
-/**
- * server.js — نسخه‌ی کامل با CORS امن، ریل‌تایم، آپلود استریم، و پیام‌های خطای فارسی
- * Node.js + Express + Socket.IO + PocketBase SDK
- */
+// /**
+//  * server.js — نسخه‌ی کامل با CORS امن، ریل‌تایم، آپلود استریم، و پیام‌های خطای فارسی
+//  * Node.js + Express + Socket.IO + PocketBase SDK
+//  */
 
-require('dotenv').config();
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'; // ✅ فقط این باشه
-const express = require('express');
-const cors = require('cors');
-const PocketBase = require('pocketbase/cjs');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const FormData = require('form-data');
-const axios = require('axios');
-// --- Polyfills برای Realtime PocketBase در Node
-const WebSocket = require('ws');
-globalThis.WebSocket = WebSocket;
-const EventSource = require('eventsource');
-globalThis.EventSource = EventSource;
+// require('dotenv').config();
+// const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'; // ✅ فقط این باشه
+// const express = require('express');
+// const cors = require('cors');
+// const PocketBase = require('pocketbase/cjs');
+// const { createServer } = require('http');
+// const { Server } = require('socket.io');
+// const multer = require('multer');
+// const path = require('path');
+// const fs = require('fs').promises;
+// const fsSync = require('fs');
+// const FormData = require('form-data');
+// const axios = require('axios');
+// // --- Polyfills برای Realtime PocketBase در Node
+// const WebSocket = require('ws');
+// globalThis.WebSocket = WebSocket;
+// const EventSource = require('eventsource');
+// globalThis.EventSource = EventSource;
 
-// ---------- متغیرهای محیط ----------
-const PORT = Number(process.env.PORT || 5050);
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const PB_URL = process.env.PB_URL || 'http://127.0.0.1:1111';
-const RAW_CORS_ORIGINS = (process.env.CORS_ORIGINS || 'localhost:3000,localhost:*')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// // ---------- متغیرهای محیط ----------
+// const PORT = Number(process.env.PORT || 5050);
+// const NODE_ENV = process.env.NODE_ENV || 'development';
+// const PB_URL = process.env.PB_URL || 'http://127.0.0.1:1111';
+// // const RAW_CORS_ORIGINS = (process.env.CORS_ORIGINS || 'localhost:3000,localhost:*')
+// //   .split(',')
+// //   .map(s => s.trim())
+// //   .filter(Boolean);
 
-const CORS_DEBUG = process.env.CORS_DEBUG === '1';
+// // const CORS_DEBUG = process.env.CORS_DEBUG === '1';
 
-// ---------- ابزارهای کمکی عمومی ----------
-const stripProto = (s) => String(s).replace(/^https?:\/\//i, '').replace(/^www\./i, '');
-const normalizeOrigin = (origin = '') => {
-  if (!origin || origin === 'null') return '';
-  try {
-    const u = new URL(origin);
-    const host = u.hostname.toLowerCase().replace(/^www\./, '');
-    const port = u.port ? `:${u.port}` : '';
-    return `${host}${port}`;
-  } catch {
-    return stripProto(String(origin).toLowerCase());
-  }
-};
-const ensureUploadDir = async () => {
-  try {
-    if (!fsSync.existsSync(UPLOAD_DIR)) {
-      await fs.mkdir(UPLOAD_DIR, { recursive: true });
-      console.log('📁 پوشه آپلود ساخته شد:', UPLOAD_DIR);
-    }
-  } catch (err) {
-    console.error('❌ خطا در ساخت پوشه آپلود:', err);
-  }
-};
-ensureUploadDir();
+// // ---------- ابزارهای کمکی عمومی ----------
+// // const stripProto = (s) => String(s).replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+// // const normalizeOrigin = (origin = '') => {
+// //   if (!origin || origin === 'null') return '';
+// //   try {
+// //     const u = new URL(origin);
+// //     const host = u.hostname.toLowerCase().replace(/^www\./, '');
+// //     const port = u.port ? `:${u.port}` : '';
+// //     return `${host}${port}`;
+// //   } catch {
+// //     return stripProto(String(origin).toLowerCase());
+// //   }
+// // };
+// const ensureUploadDir = async () => {
+//   try {
+//     if (!fsSync.existsSync(UPLOAD_DIR)) {
+//       await fs.mkdir(UPLOAD_DIR, { recursive: true });
+//       console.log('📁 پوشه آپلود ساخته شد:', UPLOAD_DIR);
+//     }
+//   } catch (err) {
+//     console.error('❌ خطا در ساخت پوشه آپلود:', err);
+//   }
+// };
+// ensureUploadDir();
 
+// // ---------- CORS ثابت ----------
+// const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:*').split(',').map(s => s.trim());
 
-// ضد تزریق در فیلتر PocketBase
-const escPB = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
+// const corsOptions = {
+//   origin: function (origin, callback) {
+//     // در حالت development همه originها مجاز
+//     if (process.env.NODE_ENV === 'development') {
+//       return callback(null, true);
+//     }
+    
+//     // در حالت production فقط دامنه‌های مجاز
+//     if (!origin || allowedOrigins.includes(origin)) {
+//       callback(null, true);
+//     } else {
+//       console.log('❌ CORS رد شد:', origin);
+//       callback(new Error('عدم اجازه دسترسی (CORS)'));
+//     }
+//   },
+//   credentials: true,
+//   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+// };
 
-// عدد امن
-const toNum = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
+// // ضد تزریق در فیلتر PocketBase
+// const escPB = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
 
-// ---------- آماده‌سازی قوانین CORS ----------
-const allowRules = RAW_CORS_ORIGINS.map(rule => ({
-  raw: rule,                   // e.g. http://localhost:*
-  norm: stripProto(rule),      // e.g. localhost:*
-  isPortWildcard: /:\*$/.test(rule),
-  isSubWildcard: /\*\./.test(rule), // e.g. *.menumita.ir
-}));
+// // عدد امن
+// const toNum = (v) => {
+//   const n = Number(v);
+//   return Number.isFinite(n) ? n : 0;
+// };
 
-function isOriginAllowed(origin) {
-  if (!origin) return true; // برای curl/غیربروزر
-  const normalized = stripProto(origin.toLowerCase());
-  const noPort = normalized.replace(/:\d+$/, '');
+// // ---------- آماده‌سازی قوانین CORS ----------
+// // const allowRules = RAW_CORS_ORIGINS.map(rule => ({
+// //   raw: rule,                   // e.g. http://localhost:*
+// //   norm: stripProto(rule),      // e.g. localhost:*
+// //   isPortWildcard: /:\*$/.test(rule),
+// //   isSubWildcard: /\*\./.test(rule), // e.g. *.menumita.ir
+// // }));
 
-  for (const r of allowRules) {
-    if (r.norm === '*') return true;
+// // function isOriginAllowed(origin) {
+// //   if (!origin) return true; // برای curl/غیربروزر
+// //   const normalized = stripProto(origin.toLowerCase());
+// //   const noPort = normalized.replace(/:\d+$/, '');
 
-    if (r.isPortWildcard) {
-      const base = r.norm.replace(/:\*$/, ''); // localhost
-      if (normalized.startsWith(base)) return true;
-      if (noPort === base) return true;
-      continue;
-    }
+// //   for (const r of allowRules) {
+// //     if (r.norm === '*') return true;
 
-    if (r.isSubWildcard) {
-      const domain = r.norm.replace(/^\*\./, ''); // menumita.ir
-      if (noPort === domain) return true;               // خود دامنه
-      if (noPort.endsWith('.' + domain)) return true;   // هر ساب‌دامین
-      continue;
-    }
+// //     if (r.isPortWildcard) {
+// //       const base = r.norm.replace(/:\*$/, ''); // localhost
+// //       if (normalized.startsWith(base)) return true;
+// //       if (noPort === base) return true;
+// //       continue;
+// //     }
 
-    if (normalized === r.norm) return true; // host[:port]
-    if (noPort === r.norm) return true;     // بدون پورت
-  }
-  return false;
-}
+// //     if (r.isSubWildcard) {
+// //       const domain = r.norm.replace(/^\*\./, ''); // menumita.ir
+// //       if (noPort === domain) return true;               // خود دامنه
+// //       if (noPort.endsWith('.' + domain)) return true;   // هر ساب‌دامین
+// //       continue;
+// //     }
+// app.use(cors(corsOptions));
+// app.options('*', cors(corsOptions));
 
-// ---------- ساخت سرویس‌ها ----------
-const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: (origin, cb) => {
-      if (CORS_DEBUG) console.log('🔌 [Socket.IO] Origin:', origin);
-      if (isOriginAllowed(origin)) return cb(null, true);
-      cb(new Error('عدم اجازه مبدأ (CORS)'));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  }
-});
+// //     if (normalized === r.norm) return true; // host[:port]
+// //     if (noPort === r.norm) return true;     // بدون پورت
+// //   }
+// //   return false;
+// // }
 
-const pb = new PocketBase(PB_URL);
-
-// ---------- CORS برای Express ----------
-const dynamicCors = cors({
-  origin: (origin, cb) => {
-    if (CORS_DEBUG) console.log('🌐 [Express] Origin:', origin);
-    if (isOriginAllowed(origin)) return cb(null, true);
-    cb(new Error('عدم اجازه مبدأ (CORS)'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-});
-
-// ---------- Middleware های سراسری (یک‌بار) ----------
-app.use(dynamicCors);
-app.options('*', dynamicCors);        // Preflight
-app.use(express.json());
-// app.use('/temp', express.static('temp'));
-app.use('/uploads', express.static((process.env.UPLOAD_DIR || './uploads')));
+// // ---------- ساخت سرویس‌ها ----------
+// const app = express();
+// const httpServer = createServer(app);
+// const io = new Server(httpServer, {
+//   cors: corsOptions  // استفاده از CORS ثابت
+// });
 
 
 
-// ---------- temp dir ----------
-const ensureTempDir = async () => {
-  try {
-    const tempDir = './temp';
-    if (!fsSync.existsSync(tempDir)) {
-      await fs.mkdir(tempDir, { recursive: true });
-      console.log('📁 پوشه temp ایجاد شد');
-    }
-  } catch (error) {
-    console.error('❌ خطا در ایجاد پوشه temp:', error);
-  }
-};
-ensureTempDir();
 
-// ---------- Multer ----------
+// const pb = new PocketBase(PB_URL);
+
+// // ---------- CORS برای Express ----------
+// // const dynamicCors = cors({
+// //   origin: (origin, cb) => {
+// //     if (CORS_DEBUG) console.log('🌐 [Express] Origin:', origin);
+// //     if (isOriginAllowed(origin)) return cb(null, true);
+// //     cb(new Error('عدم اجازه مبدأ (CORS)'));
+// //   },
+// //   credentials: true,
+// //   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+// //   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+// // });
+
+// // ---------- Middleware های سراسری (یک‌بار) ----------
+// // app.use(dynamicCors);
+// // app.options('*', dynamicCors);        // Preflight
+// app.use(express.json());
+// // app.use('/temp', express.static('temp'));
+// app.use('/uploads', express.static((process.env.UPLOAD_DIR || './uploads')));
+
+
+
+// // ---------- temp dir ----------
+// // const ensureTempDir = async () => {
+// //   try {
+// //     const tempDir = './temp';
+// //     if (!fsSync.existsSync(tempDir)) {
+// //       await fs.mkdir(tempDir, { recursive: true });
+// //       console.log('📁 پوشه temp ایجاد شد');
+// //     }
+// //   } catch (error) {
+// //     console.error('❌ خطا در ایجاد پوشه temp:', error);
+// //   }
+// // };
+// // ensureTempDir();
+
+// // ---------- Multer ----------
+// // const storage = multer.diskStorage({
+// //   destination: (req, file, cb) => cb(null, './temp'),
+// //   filename: (req, file, cb) => {
+// //     const filetypes = /jpeg|jpg|png|gif|webp/;
+// //     const ext = path.extname(file.originalname).toLowerCase();
+// //     const ok = filetypes.test(ext);
+// //     if (!ok) {
+// //       return cb(new Error('فقط فایل‌های تصویری مجاز هستند (jpeg, jpg, png, gif, webp).'));
+// //     }
+// //     const unique = Date.now() + '_' + Math.random().toString(36).substring(2) + ext;
+// //     cb(null, unique);
+// //   }
+// // });
+
+// // ---------- توابع کمکی فایل ساده ----------
+// const deleteTempFile = async (filePath) => {
+//   try {
+//     await fs.unlink(filePath);
+//     console.log('🗑️ فایل موقت حذف شد:', filePath);
+//   } catch (error) {
+//     console.warn('⚠️ خطا در حذف فایل موقت:', error.message);
+//   }
+// };
+
+// async function uploadToPocketBase(filePath, originalName) {
+//   try {
+//     console.log('📤 آپلود فایل:', originalName);
+    
+//     const formData = new FormData();
+//     const fileStream = fsSync.createReadStream(filePath);
+    
+//     formData.append('file', fileStream, {
+//       filename: originalName,
+//       contentType: 'image/jpeg'
+//     });
+    
+//     formData.append('name', path.parse(originalName).name);
+
+//     const response = await axios.post(
+//       `${process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090'}/api/collections/images/records`,
+//       formData,
+//       {
+//         headers: {
+//           ...formData.getHeaders(),
+//         },
+//         maxContentLength: Infinity,
+//         maxBodyLength: Infinity
+//       }
+//     );
+
+//     console.log('✅ آپلود موفق:', response.data.id);
+//     return response.data;
+
+//   } catch (error) {
+//     console.error('❌ خطای آپلود:', error.response?.data || error.message);
+//     throw new Error(`خطا در آپلود فایل: ${error.message}`);
+//   }
+// }
+
 // const storage = multer.diskStorage({
-//   destination: (req, file, cb) => cb(null, './temp'),
+//   destination: async (req, file, cb) => {
+//     try {
+//       if (!fsSync.existsSync((process.env.UPLOAD_DIR || './uploads'))) {
+//         await fs.mkdir((process.env.UPLOAD_DIR || './uploads'), { recursive: true });
+//         console.log('📁 پوشه آپلود ایجاد شد:', (process.env.UPLOAD_DIR || './uploads'));
+//       }
+//       cb(null, (process.env.UPLOAD_DIR || './uploads'));
+//     } catch (err) {
+//       cb(new Error('❌ خطا در ایجاد پوشه آپلود'));
+//     }
+//   },
 //   filename: (req, file, cb) => {
 //     const filetypes = /jpeg|jpg|png|gif|webp/;
 //     const ext = path.extname(file.originalname).toLowerCase();
@@ -173,160 +260,297 @@ ensureTempDir();
 // });
 
 
+// const upload = multer({ storage });
 
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    try {
-      if (!fsSync.existsSync((process.env.UPLOAD_DIR || './uploads'))) {
-        await fs.mkdir((process.env.UPLOAD_DIR || './uploads'), { recursive: true });
-        console.log('📁 پوشه آپلود ایجاد شد:', (process.env.UPLOAD_DIR || './uploads'));
-      }
-      cb(null, (process.env.UPLOAD_DIR || './uploads'));
-    } catch (err) {
-      cb(new Error('❌ خطا در ایجاد پوشه آپلود'));
-    }
-  },
-  filename: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif|webp/;
-    const ext = path.extname(file.originalname).toLowerCase();
-    const ok = filetypes.test(ext);
-    if (!ok) {
-      return cb(new Error('فقط فایل‌های تصویری مجاز هستند (jpeg, jpg, png, gif, webp).'));
-    }
-    const unique = Date.now() + '_' + Math.random().toString(36).substring(2) + ext;
-    cb(null, unique);
-  }
-});
+// // ---------- توابع کمکی فایل ----------
+// // const deleteTempFile = async (filePath) => {
+// //   try {
+// //     await fs.unlink(filePath);
+// //     if (CORS_DEBUG) console.log('🗑️ فایل موقت حذف شد:', filePath);
+// //   } catch (_) {}
+// // };
+
+// /**
+//  * تابع درست آپلود فایل با axios
+//  */
+// // async function uploadToPocketBase(filePath, originalName) {
+// //   try {
+// //     console.log('📤 آپلود فایل:', originalName);
+    
+// //     // ایجاد FormData
+// //     const formData = new FormData();
+    
+// //     // اضافه کردن فایل
+// //     const fileStream = fsSync.createReadStream(filePath);
+// //     formData.append('file', fileStream, {
+// //       filename: originalName,
+// //       contentType: getMimeType(originalName)
+// //     });
+    
+// //     formData.append('name', path.parse(originalName).name);
+
+// //     // آپلود مستقیم با axios
+// //     const response = await axios.post(
+// //       `${PUBLIC_PB_URL}/api/collections/images/records`,
+// //       formData,
+// //       {
+// //         headers: {
+// //           ...formData.getHeaders(),
+// //         },
+// //         maxContentLength: Infinity,
+// //         maxBodyLength: Infinity
+// //       }
+// //     );
+
+// //     console.log('✅ آپلود موفق:', response.data.id);
+// //     return response.data;
+
+// //   } catch (error) {
+// //     console.error('❌ خطای آپلود:', error.response?.data || error.message);
+// //     throw new Error(`خطا در آپلود فایل: ${error.message}`);
+// //   }
+// // }
+
+// // function getMimeType(filename) {
+// //   const ext = path.extname(filename).toLowerCase();
+// //   const mimeTypes = {
+// //     '.jpg': 'image/jpeg',
+// //     '.jpeg': 'image/jpeg',
+// //     '.png': 'image/png', 
+// //     '.gif': 'image/gif',
+// //     '.webp': 'image/webp',
+// //     '.bmp': 'image/bmp'
+// //   };
+// //   return mimeTypes[ext] || 'application/octet-stream';
+// // }
 
 
-const upload = multer({ storage });
-
-// ---------- توابع کمکی فایل ----------
-const deleteTempFile = async (filePath) => {
-  try {
-    await fs.unlink(filePath);
-    if (CORS_DEBUG) console.log('🗑️ فایل موقت حذف شد:', filePath);
-  } catch (_) {}
-};
-
-// async function uploadToPocketBase(filePath, originalName) {
+// async function deleteImageFromPocketBase(imageId) {
 //   try {
-//     const formData = new FormData();
-//     formData.append('file', fsSync.createReadStream(filePath), { filename: originalName });
-//     formData.append('name', path.parse(originalName).name);
-//     const record = await pb.collection('images').create(formData);
-//     return record;
+//     if (!imageId) return true;
+//     await pb.collection('images').delete(imageId);
+//     return true;
 //   } catch (error) {
-//     throw new Error(`خطا در آپلود فایل: ${error.message}`);
+//     console.warn('⚠️ خطا در حذف تصویر PocketBase:', error?.message || error);
+//     return false;
 //   }
 // }
 
 
 
+// // ---------- Socket.IO connection ----------
+// io.on('connection', (socket) => {
+//   console.log('🔌 اتصال کلاینت:', socket.id);
+//   socket.on('disconnect', (reason) => {
+//     console.log('🔌 قطع اتصال:', socket.id, reason);
+//   });
+//   socket.on('error', (error) => {
+//     console.error('🔌 خطای سوکت:', error);
+//   });
+// });
+
+// // ---------- Routes مشترک و کمکی (مثبت به نسخه‌ی شما) ----------
+
+// // ——— Posters helpers
+// function buildFileUrlSafe(rec, file) {
+//   // استفاده مستقیم از آدرس عمومی - بدون استفاده از pb.files.getUrl
+//   const publicBase = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
+//   const base = publicBase.replace(/\/+$/, '');
+  
+//   // ساخت مستقیم آدرس فایل
+//   return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
+// }
 
 
 
 /**
- * تابع درست آپلود فایل با axios
+ * server.js — نسخه نهایی، تمیز، بدون خطا و کاملاً کارکردی
+ * با CORS درست برای Express + Socket.IO + آپلود + ریل‌تایم
  */
+require('dotenv').config();
+
+const express = require('express');
+const cors = require('cors');
+const PocketBase = require('pocketbase/cjs');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
+const fsSync = require('fs');
+const FormData = require('form-data');
+const axios = require('axios');
+
+// --- Polyfills برای Realtime در Node.js
+globalThis.WebSocket = require('ws');
+globalThis.EventSource = require('eventsource');
+
+// ---------- متغیرهای محیط ----------
+const PORT = Number(process.env.PORT || 5050);
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const PB_URL = process.env.PB_URL || 'http://127.0.0.1:8090';
+const PUBLIC_PB_URL = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
+const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+
+// ---------- لیست دامنه‌های مجاز برای CORS ----------
+// const allowedOrigins = process.env.CORS_ORIGINS
+//   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+//   : [
+//       'http://localhost:3000',
+//       'http://127.0.0.1:3000',
+//       'https://frozencoffee.ir',
+//       'https://www.frozencoffee.ir',
+//       'https://admin.frozencoffee.ir'
+//     ];
+// بعد (جایگزین کن با این):
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+  : [];
+
+if (allowedOrigins.length === 0) {
+  console.error('خطای بحرانی: CORS_ORIGINS تنظیم نشده است!');
+  console.error('CORS_ORIGINS=https://frozencoffee.ir,https://www.frozencoffee.ir,https://admin.frozencoffee.ir');
+  process.exit(1);
+}
+
+console.log('دامنه‌های مجاز CORS:', allowedOrigins);
+
+// ---------- ساخت پوشه آپلود ----------
+const ensureUploadDir = async () => {
+  try {
+    if (!fsSync.existsSync(UPLOAD_DIR)) {
+      await fs.mkdir(UPLOAD_DIR, { recursive: true });
+      console.log('پوشه آپلود ساخته شد:', UPLOAD_DIR);
+    }
+  } catch (err) {
+    console.error('خطا در ساخت پوشه آپلود:', err);
+  }
+};
+ensureUploadDir();
+
+// ---------- ساخت اپلیکیشن ----------
+const app = express();
+const httpServer = createServer(app);
+
+// ---------- Socket.IO با CORS کاملاً درست ----------
+const io = new Server(httpServer, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  allowEIO3: true,
+  path: '/socket.io/'
+});
+
+// ---------- اتصال به PocketBase ----------
+const pb = new PocketBase(PB_URL);
+
+// ---------- تنظیمات CORS برای Express (بعد از تعریف app!) ----------
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.log('CORS رد شد:', origin);
+    return callback(new Error('دسترسی توسط CORS مسدود شد'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
+// ---------- میدلوِرهای اصلی ----------
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// ---------- توابع کمکی ----------
+const escPB = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
+const toNum = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+
+const buildFileUrlSafe = (rec, file) => {
+  const base = PUBLIC_PB_URL.replace(/\/+$/, '');
+  return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
+};
+
+const deleteTempFile = async (filePath) => {
+  try {
+    await fs.unlink(filePath);
+    console.log('فایل موقت حذف شد:', filePath);
+  } catch (_) {}
+};
+
 async function uploadToPocketBase(filePath, originalName) {
   try {
-    console.log('📤 آپلود فایل:', originalName);
-    
-    // ایجاد FormData
     const formData = new FormData();
-    
-    // اضافه کردن فایل
     const fileStream = fsSync.createReadStream(filePath);
+
     formData.append('file', fileStream, {
       filename: originalName,
-      contentType: getMimeType(originalName)
+      contentType: 'image/jpeg'
     });
-    
     formData.append('name', path.parse(originalName).name);
 
-    // آپلود مستقیم با axios
     const response = await axios.post(
       `${PUBLIC_PB_URL}/api/collections/images/records`,
       formData,
       {
-        headers: {
-          ...formData.getHeaders(),
-        },
+        headers: { ...formData.getHeaders() },
         maxContentLength: Infinity,
         maxBodyLength: Infinity
       }
     );
 
-    console.log('✅ آپلود موفق:', response.data.id);
+    console.log('آپلود موفق:', response.data.id);
     return response.data;
-
   } catch (error) {
-    console.error('❌ خطای آپلود:', error.response?.data || error.message);
-    throw new Error(`خطا در آپلود فایل: ${error.message}`);
+    console.error('خطا در آپلود:', error.response?.data || error.message);
+    throw error;
   }
 }
 
-function getMimeType(filename) {
-  const ext = path.extname(filename).toLowerCase();
-  const mimeTypes = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png', 
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.bmp': 'image/bmp'
-  };
-  return mimeTypes[ext] || 'application/octet-stream';
-}
-
-
 async function deleteImageFromPocketBase(imageId) {
+  if (!imageId) return true;
   try {
-    if (!imageId) return true;
     await pb.collection('images').delete(imageId);
     return true;
   } catch (error) {
-    console.warn('⚠️ خطا در حذف تصویر PocketBase:', error?.message || error);
+    console.warn('خطا در حذف تصویر:', error.message);
     return false;
   }
 }
 
+// ---------- تنظیمات Multer ----------
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!/jpeg|jpg|png|gif|webp/.test(ext)) {
+      return cb(new Error('فقط فایل‌های تصویری مجاز هستند'));
+    }
+    const unique = `${Date.now()}_${Math.random().toString(36).substr(2)}${ext}`;
+    cb(null, unique);
+  }
+});
 
+const upload = multer({ storage });
 
-// ---------- Socket.IO connection ----------
+// ---------- اتصال Socket.IO ----------
 io.on('connection', (socket) => {
-  console.log('🔌 اتصال کلاینت:', socket.id);
+  console.log('کلاینت متصل شد:', socket.id);
+
   socket.on('disconnect', (reason) => {
-    console.log('🔌 قطع اتصال:', socket.id, reason);
+    console.log('کلاینت قطع شد:', socket.id, reason);
   });
-  socket.on('error', (error) => {
-    console.error('🔌 خطای سوکت:', error);
+
+  socket.on('error', (err) => {
+    console.error('خطای سوکت:', err);
   });
 });
 
-// ---------- Routes مشترک و کمکی (مثبت به نسخه‌ی شما) ----------
-
-// ——— Posters helpers
-// function buildFileUrlSafe(rec, file) {
-//   const base = (pb.baseUrl || PUBLIC_PB_URL).replace(/\/+$/, '');
-//   try {
-//     const url = pb.files.getUrl(rec, file);
-//     if (url && /^https?:\/\//i.test(url)) return url;
-//     return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-//   } catch {
-//     return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-//   }
-// }
-// ——— Posters helpers
-function buildFileUrlSafe(rec, file) {
-  // استفاده مستقیم از آدرس عمومی - بدون استفاده از pb.files.getUrl
-  const publicBase = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
-  const base = publicBase.replace(/\/+$/, '');
-  
-  // ساخت مستقیم آدرس فایل
-  return `${base}/api/files/${rec.collectionId}/${rec.id}/${file}`;
-}
 
 
 // ========== COUPONS ==========
@@ -1513,46 +1737,7 @@ const FIELDS_ORD = [
   'expand.couponCode.id','expand.couponCode.couponCode','expand.couponCode.discountType','expand.couponCode.discountAmount'
 ].join(',');
 
-// function mapOrderOut(order) {
-//   const out = {
-//     id: order.id,
-//     collectionId: order.collectionId,
-//     collectionName: order.collectionName,
-//     created: order.created,
-//     updated: order.updated,
-//     orderStatus: order.orderStatus ?? null,
-//     items: order.items ?? [],
-//     totalPrice: order.totalPrice ?? 0,
-//     shippingAddress: order.shippingAddress ?? null,
-//     paymentMethod: order.paymentMethod ?? null,
-//     orderTotal: order.orderTotal ?? 0,
-//     trackingUrl: order.trackingUrl ?? null,
-//     orderDate: order.orderDate ?? null,
-//     userID: order.userID ?? null,
-//     phone_number_code: order.phone_number_code ?? null,
-//   };
 
-//   const exUser = order?.expand?.userID;
-//   if (exUser) {
-//     out.user = {
-//       id: exUser.id,
-//       uuid: exUser.uuid ?? null,
-//       name: exUser.name ?? null,
-//       phone_number: exUser.phone_number ?? null,
-//       address: exUser.address ?? null,
-//     };
-//   }
-//   const exCoupon = order?.expand?.couponCode;
-//   if (exCoupon) {
-//     out.coupon = {
-//       id: exCoupon.id,
-//       couponCode: exCoupon.couponCode ?? null,
-//       discountType: exCoupon.discountType ?? null,
-//       discountAmount: exCoupon.discountAmount ?? null,
-//     };
-//   }
-//   return out;
-// }
 function mapOrderOut(order) {
   // 🔽 استفاده از normalizeOrderTotal
   const norm = normalizeOrderTotal(order);
@@ -2368,16 +2553,3 @@ httpServer.listen(PORT, () => {
   console.log('  • /api/auth/login');
   console.log('  • /app-manifest/:raw\n');
 });
-
-/*
-# .env نمونه‌ی پیشنهادی
-PORT=5050
-NODE_ENV=development
-PB_URL=http://127.0.0.1:1111
-
-# اجازه‌ی localhost با هر پورت + دامنه‌های منومیتا و ساب‌دامین‌ها
-CORS_ORIGINS=localhost:*,127.0.0.1:5500,menumita.ir,*.menumita.ir
-
-# برای دیدن لاگ‌های CORS (اختیاری)
-# CORS_DEBUG=1
-*/

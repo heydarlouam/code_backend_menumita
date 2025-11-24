@@ -63,9 +63,40 @@ const app = express();
 const httpServer = createServer(app);
 
 // ---------- Socket.IO با CORS کاملاً درست ----------
+
+
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // در حالت توسعه، همه مجاز
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      
+      // در حالت تولید، فقط دامنه‌های مجاز
+      if (!origin) return callback(null, true);
+      
+      let hostname;
+      try {
+        hostname = new URL(origin).hostname;
+      } catch {
+        return callback(new Error('آدرس نامعتبر'));
+      }
+      
+      const isAllowed = allowedOrigins.some(allowed => {
+        try {
+          const allowedHostname = new URL(allowed).hostname;
+          return hostname === allowedHostname;
+        } catch {
+          return hostname === allowed;
+        }
+      });
+      
+      if (isAllowed) return callback(null, true);
+      
+      console.log('Socket.IO CORS رد شد:', origin);
+      return callback(new Error('دسترسی توسط CORS مسدود شد'));
+    },
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -73,15 +104,42 @@ const io = new Server(httpServer, {
   path: '/socket.io/'
 });
 
+
 // ---------- اتصال به PocketBase ----------
 const pb = new PocketBase(PB_URL);
 
-// ---------- تنظیمات CORS برای Express (بعد از تعریف app!) ----------
+
+// ---------- تنظیمات CORS برای Express ----------
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // در حالت توسعه، همه مجاز
+    if (process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
+    
+    // در حالت تولید، فقط دامنه‌های مجاز
+    if (!origin) return callback(null, true);
+    
+    let hostname;
+    try {
+      hostname = new URL(origin).hostname;
+    } catch {
+      return callback(new Error('آدرس نامعتبر'));
+    }
+    
+    const isAllowed = allowedOrigins.some(allowed => {
+      try {
+        const allowedHostname = new URL(allowed).hostname;
+        return hostname === allowedHostname;
+      } catch {
+        return hostname === allowed;
+      }
+    });
+    
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    
     console.log('CORS رد شد:', origin);
     return callback(new Error('دسترسی توسط CORS مسدود شد'));
   },
@@ -641,50 +699,76 @@ app.delete('/api/brands/:id', async (req, res) => {
 
 // ========== CATEGORIES ==========
 
-
+// ========== CATEGORIES ==========
 app.get('/api/categories', async (req, res) => {
   try {
-    const { phone_number_code, perPage = 200 } = req.query;
-
-    if (!phone_number_code) {
-      return res.status(400).json({ success: false, error: 'phone_number_code الزامی است.' });
-    }
+    const {
+      expand = 'image', // 🔽 اضافه کردن expand مانند posters
+      fields = 'id,collectionId,collectionName,created,updated,name,image,phone_number_code,expand.image.id,expand.image.collectionId,expand.image.file', // 🔽 اضافه کردن فیلدهای expand
+      phone_number_code, filter, perPage = 200
+    } = req.query;
 
     const limit = Math.min(Math.max(parseInt(perPage, 10) || 200, 1), 500);
+    const sort = '-created,-id';
+    const baseFilter = phone_number_code
+      ? `phone_number_code = "${escPB(String(phone_number_code).trim())}"`
+      : (filter || '');
 
-    // فیلتر مستقیم روی phone_number_code
-    const list = await pb.collection('categories').getList(1, limit, {
-      filter: `phone_number_code = "${phone_number_code.trim()}"`,
-      sort: 'name',
-    });
+    const data = [];
+    let lastCreated = null, lastId = null;
 
-    const categories = list.items.map(cat => {
-      const imageFile = cat.image; // این مستقیم نام فایل هست (مثل: pms8qoq5026x7nc)
+    while (true) {
+      const cursor = (lastCreated && lastId)
+        ? `(created < "${escPB(lastCreated)}") || (created = "${escPB(lastCreated)}" && id < "${escPB(lastId)}")`
+        : '';
+      const eff = baseFilter && cursor ? `(${baseFilter}) && (${cursor})`
+               : baseFilter ? `(${baseFilter})`
+               : cursor ? `(${cursor})` : '';
 
-      return {
-        id: cat.id,
-        name: cat.name,
-        image: imageFile || null,
-        phone_number_code: cat.phone_number_code,
-        created: cat.created,
-        updated: cat.updated,
-        // ساخت آدرس عکس با PUBLIC_PB_URL
-        imageUrl: imageFile
-          ? `${process.env.PUBLIC_PB_URL.replace(/\/+$/, '')}/api/files/${cat.collectionId}/${cat.id}/${encodeURIComponent(imageFile)}`
-          : null
-      };
-    });
+      const page = await pb.collection('categories').getList(1, limit, {
+        sort, filter: eff, expand, fields, skipTotal: true
+      });
+      if (!page.items.length) break;
 
-    return res.json({
-      success: true,
-      categories
-    });
+      for (const category of page.items) {
+        const out = {
+          id: category.id,
+          collectionId: category.collectionId,
+          collectionName: category.collectionName,
+          created: category.created,
+          updated: category.updated,
+          name: category.name ?? null,
+          imageId: category.image ?? null, // ID رابطه
+          phone_number_code: category.phone_number_code ?? null,
+          imageUrl: null
+        };
+
+        // 🔽 دقیقاً مانند posters - استفاده از expand.image.file
+        const img = category?.expand?.image;
+        if (img?.file) {
+          out.imageUrl = buildFileUrlSafe(img, img.file);
+          console.log(`✅ Category ${category.id}: imageUrl = ${out.imageUrl}`);
+        } else {
+          console.log(`⚠️ Category ${category.id}: no expand.image or file`);
+        }
+
+        data.push(out);
+      }
+
+      const last = page.items[page.items.length - 1];
+      lastCreated = last.created; lastId = last.id;
+      if (page.items.length < limit) break;
+    }
+
+    return res.json({ success: true, data }); // 🔽 تغییر به data برای یکسان‌سازی
 
   } catch (error) {
     console.error('خطا در /api/categories:', error.message);
-    return res.status(500).json({ success: false, error: 'خطای سرور' });
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
+
+
 
 app.post('/api/categories', upload.single('image'), async (req, res) => {
   let tempFilePath = null;
@@ -1431,38 +1515,50 @@ function emitOrdersChange({ action, record }) {
   });
 }
 
+
 async function setupRealtimeOrders() {
   try {
-    console.log('📡 Subscribing PocketBase collection: orders');
+    console.log('📡 Subscribing PocketBase collection: orders from:', PB_URL);
 
+    // استفاده از همان pb instance که قبلا تعریف شده
     await pb.collection('orders').subscribe('*', async (e) => {
+      console.log('📨 PocketBase Realtime Event:', e.action, e.record?.id);
+      
       const rawStatus = (e?.record?.orderStatus || '').toString();
-      if (!ALLOWED_STATUSES.includes(rawStatus)) return;
+      if (!ALLOWED_STATUSES.includes(rawStatus)) {
+        console.log('⏭️ وضعیت غیرمجاز، نادیده گرفته شد:', rawStatus);
+        return;
+      }
 
-      if (e.action === 'create' || e.action === 'update') {
-        try {
-          const full = await fetchFullOrder(e.record.id);
+      try {
+        if (e.action === 'create' || e.action === 'update') {
+          const full = await pb.collection('orders').getOne(e.record.id, { 
+            expand: EXPAND_ORD, 
+            fields: FIELDS_ORD 
+          });
+          console.log('✅ ارسال به Socket.IO:', e.action, full.id);
           emitOrdersChange({ action: e.action, record: mapOrderOut(full) });
-        } catch (err) {
-          console.error('❌ دریافت رکورد کامل سفارش ناموفق:', err?.message || err);
+        } else if (e.action === 'delete') {
+          const id = e.record?.id;
+          if (!id) return;
+          console.log('🗑️ حذف سفارش:', id);
+          emitOrdersChange({
+            action: 'delete',
+            record: {
+              id,
+              orderStatus: e.record?.orderStatus ?? null,
+              phone_number_code: e.record?.phone_number_code ?? null,
+            },
+          });
         }
-      } else if (e.action === 'delete') {
-        const id = e.record?.id;
-        if (!id) return;
-        emitOrdersChange({
-          action: 'delete',
-          record: {
-            id,
-            orderStatus: e.record?.orderStatus ?? null,
-            phone_number_code: e.record?.phone_number_code ?? null,
-          },
-        });
+      } catch (err) {
+        console.error('❌ خطا در پردازش ایونت:', err?.message || err);
       }
     });
 
     console.log('✅ پل ریل‌تایم آماده است: "orders_change" پخش می‌شود.');
   } catch (err) {
-    console.error('❌ راه‌اندازی ریل‌تایم ناموفق بود، تلاش مجدد ۳ ثانیه دیگر:', err?.message || err);
+    console.error('❌ راه‌اندازی ریل‌تایم ناموفق بود، تلاش مجدد ۳ ثانیه دیگر:', err);
     setTimeout(setupRealtimeOrders, 3000);
   }
 }
@@ -1596,15 +1692,7 @@ app.get('/api/ordersalls', async (req, res) => {
             address: exUser.address ?? null
           };
         }
-        // const exCoupon = order?.expand?.couponCode;
-        // if (exCoupon) {
-        //   out.coupon = {
-        //     id: exCoupon.id,
-        //     couponCode: exCoupon.couponCode ?? null,
-        //     discountType: exCoupon.discountType ?? null,
-        //     discountAmount: exCoupon.discountAmount ?? null
-        //   };
-        // }
+     
           const exCoupon = order?.expand?.couponCode;
         if (exCoupon) {
           // 🔽 استفاده از منطق مشابه روت بالایی برای کوپن
@@ -1626,12 +1714,7 @@ app.get('/api/ordersalls', async (req, res) => {
       if (page.items.length < limit) break;
     }
 
-//     return res.json({ success: true, data });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, error: error.message });
-//   }
-// });
-   // 🔽 اضافه کردن count و message مثل روت بالایی
+
     return res.json({ 
       success: true, 
       message: 'تمام سفارش‌ها دریافت شد.', 
@@ -1690,61 +1773,6 @@ app.get('/api/orders', async (req, res) => {
 
       currentPage += 1;
 
-//       const last = pageRes.items[pageRes.items.length - 1];
-//       lastCreated = last.created; lastId = last.id;
-
-//       if (currentPage < targetPage) continue;
-
-//       for (const order of pageRes.items) {
-//         const out = {
-//           id: order.id,
-//           collectionId: order.collectionId,
-//           collectionName: order.collectionName,
-//           created: order.created,
-//           updated: order.updated,
-//           orderStatus: order.orderStatus ?? null,
-//           items: order.items ?? [],
-//           totalPrice: order.totalPrice ?? 0,
-//           shippingAddress: order.shippingAddress ?? null,
-//           paymentMethod: order.paymentMethod ?? null,
-//            orderMode: order.orderMode ?? null,        // اضافه شود
-//   tableNumber: order.tableNumber ?? 0,    
-//           orderTotal: order.orderTotal ?? 0,
-//           trackingUrl: order.trackingUrl ?? null,
-//           orderDate: order.orderDate ?? null,
-//           userID: order.userID ?? null,
-//           phone_number_code: order.phone_number_code ?? null
-//         };
-
-//         const exUser = order?.expand?.userID;
-//         if (exUser) {
-//           out.user = {
-//             id: exUser.id,
-//             uuid: exUser.uuid ?? null,
-//             name: exUser.name ?? null,
-//             phone_number: exUser.phone_number ?? null,
-//             address: exUser.address ?? null
-//           };
-//         }
-//         const exCoupon = order?.expand?.couponCode;
-//         if (exCoupon) {
-//           out.coupon = {
-//             id: exCoupon.id,
-//             couponCode: exCoupon.couponCode ?? null,
-//             discountType: exCoupon.discountType ?? null,
-//             discountAmount: exCoupon.discountAmount ?? null
-//           };
-//         }
-//         data.push(out);
-//       }
-//       break;
-//     }
-
-//     return res.json({ success: true, data });
-//   } catch (error) {
-//     return res.status(500).json({ success: false, error: error.message });
-//   }
-// });
 
       const last = pageRes.items[pageRes.items.length - 1];
       lastCreated = last.created; lastId = last.id;
@@ -2104,7 +2132,7 @@ const escapeFilterValue = (v = '') => String(v).replace(/(["\\])/g, '\\$1');
 
 
 
-s
+
 app.get('/app-manifest/:raw', async (req, res) => {
   try {
     const raw = (req.params.raw || '').trim();

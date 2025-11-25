@@ -1,0 +1,24 @@
+
+
+
+
+
+به production:
+
+bash
+cd /root/backend
+sed -i 's/^NODE_ENV=development$/#NODE_ENV=development/' .env
+sed -i 's/^#NODE_ENV=production$/NODE_ENV=production/' .env
+pm2 delete menumita-backend
+set -a && source .env && set +a && pm2 start server.js --name "menumita-backend"
+
+
+
+به development:
+
+bash
+cd /root/backend
+sed -i 's/^NODE_ENV=production$/#NODE_ENV=production/' .env
+sed -i 's/^#NODE_ENV=development$/NODE_ENV=development/' .env
+pm2 delete menumita-backend
+set -a && source .env && set +a && pm2 start server.js --name "menumita-backend"

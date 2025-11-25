@@ -1,10 +1,12 @@
-// ecosystem.config.js
 module.exports = {
   apps: [{
-    name: 'menumita-backend',
-    script: 'server.js',
+    name: "menumita-backend",
+    script: "./server.js",
     instances: 1,
-    autorestart: true,
-    watch: false
+    exec_mode: "fork",
+    env_file: ".env",
+    error_file: "./logs/err.log",
+    out_file: "./logs/out.log",
+    time: true
   }]
-};
+}

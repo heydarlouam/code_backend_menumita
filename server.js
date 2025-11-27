@@ -32,15 +32,21 @@ const PUBLIC_PB_URL = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
 // ---------- لیست دامنه‌های مجاز برای CORS ----------
-
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
   : [];
 
-if (allowedOrigins.length === 0) {
-  console.error('خطای بحرانی: CORS_ORIGINS تنظیم نشده است!');
-  console.error('CORS_ORIGINS=https://frozencoffee.ir,https://www.frozencoffee.ir,https://admin.frozencoffee.ir');
+
+const isProd = NODE_ENV === 'production';
+if (isProd && allowedOrigins.length === 0) {
+  console.error('خطای بحرانی (production): CORS_ORIGINS تنظیم نشده است!');
+  console.error('مثال مقدار صحیح:');
+  console.error('CORS_ORIGINS=https://frozencoffee.ir,https://www.frozencoffee.ir,https://admin.frozencoffee.ir,https://backend.frozencoffee.ir');
   process.exit(1);
+}
+
+if (!isProd && allowedOrigins.length === 0) {
+  console.warn('هشدار (development): CORS_ORIGINS تنظیم نشده است. در حالت توسعه همه Originها مجاز خواهند بود.');
 }
 
 console.log('دامنه‌های مجاز CORS:', allowedOrigins);
@@ -69,53 +75,54 @@ const io = new Server(httpServer, {
   cors: {
     origin: function (origin, callback) {
       // لاگ برای دیباگ
-      console.log('🔍 Socket.IO CORS check - Origin:', origin, 'NODE_ENV:', process.env.NODE_ENV);
+      console.log('🔍 Socket.IO CORS check - Origin:', origin, 'NODE_ENV:', NODE_ENV);
       
       // در حالت development همه مجاز
-      if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Development mode - Allowing all origins');
+      if (NODE_ENV === 'development') {
+        console.log('✅ Socket.IO Development mode - Allowing all origins');
         return callback(null, true);
       }
       
       // برای اتصالات بدون origin (مثل mobile apps یا برخی WebSocket clients)
       if (!origin) {
-        console.log('✅ No origin - Allowing connection');
+        console.log('✅ Socket.IO No origin - Allowing connection');
         return callback(null, true);
       }
       
       try {
         const originHostname = new URL(origin).hostname;
-        console.log('🔍 Checking origin hostname:', originHostname);
+        console.log('🔍 Socket.IO Checking origin hostname:', originHostname);
         
         const isAllowed = allowedOrigins.some(allowedOrigin => {
           try {
             const allowedHostname = new URL(allowedOrigin).hostname;
-            console.log('🔍 Comparing with allowed:', allowedHostname);
+            console.log('🔍 Socket.IO Comparing with allowed:', allowedHostname);
             return originHostname === allowedHostname;
           } catch {
+            // اگر allowedOrigins شبیه hostname خالص باشد
             return originHostname === allowedOrigin;
           }
         });
         
         if (isAllowed) {
-          console.log('✅ CORS allowed for:', origin);
+          console.log('✅ Socket.IO CORS allowed for:', origin);
           return callback(null, true);
         } else {
-          console.log('❌ CORS blocked:', origin, 'Allowed origins:', allowedOrigins);
+          console.log('❌ Socket.IO CORS blocked:', origin, 'Allowed origins:', allowedOrigins);
           return callback(new Error('Not allowed by CORS'));
         }
       } catch (error) {
-        console.log('❌ CORS URL parsing error:', error.message);
+        console.log('❌ Socket.IO CORS URL parsing error:', error.message);
         return callback(new Error('Invalid origin'));
       }
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   },
   allowEIO3: true,
-  transports: ['websocket', 'polling'], // اضافه کردن این خط
-  path: '/socket.io/'
+  transports: ['websocket', 'polling'],
+  path: '/socket.io/',
 });
 
 
@@ -126,15 +133,15 @@ const pb = new PocketBase(PB_URL);
 // ---------- تنظیمات CORS برای Express ----------
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('🔍 Express CORS check - Origin:', origin, 'NODE_ENV:', process.env.NODE_ENV);
-    
-    // در حالت development همه مجاز
-    if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 Express CORS check - Origin:', origin, 'NODE_ENV:', NODE_ENV);
+
+    // در حالت development همه Origin ها مجاز هستند
+    if (NODE_ENV === 'development') {
       console.log('✅ Express Development mode - Allowing all origins');
       return callback(null, true);
     }
     
-    // برای اتصالات بدون origin
+    // برای درخواست‌هایی که origin ندارند (مثلاً curl، برخی سرورها، موبایل)
     if (!origin) {
       console.log('✅ Express No origin - Allowing connection');
       return callback(null, true);
@@ -150,6 +157,7 @@ app.use(cors({
           console.log('🔍 Express Comparing with allowed:', allowedHostname);
           return originHostname === allowedHostname;
         } catch {
+          // اگر CORS_ORIGINS فقط hostname ساده باشد
           return originHostname === allowedOrigin;
         }
       });
@@ -158,7 +166,7 @@ app.use(cors({
         console.log('✅ Express CORS allowed for:', origin);
         return callback(null, true);
       } else {
-        console.log('❌ Express CORS blocked:', origin);
+        console.log('❌ Express CORS blocked:', origin, 'Allowed origins:', allowedOrigins);
         return callback(new Error('Not allowed by CORS'));
       }
     } catch (error) {
@@ -168,7 +176,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
 // ---------- میدلوِرهای اصلی ----------

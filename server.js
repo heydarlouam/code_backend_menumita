@@ -28,7 +28,8 @@ globalThis.EventSource = require('eventsource');
 const PORT = Number(process.env.PORT || 5050);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const PB_URL = process.env.PB_URL || 'http://127.0.0.1:8090';
-const PUBLIC_PB_URL = process.env.PUBLIC_PB_URL || 'http://87.248.155.214:8090';
+const PUBLIC_PB_URL = process.env.PUBLIC_PB_URL || 'https://pb.frozencoffee.ir';
+
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
 // ---------- لیست دامنه‌های مجاز برای CORS ----------
